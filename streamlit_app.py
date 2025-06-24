@@ -11,6 +11,9 @@ import importlib.util
 import sys
 from langchain.prompts import PromptTemplate
 import difflib
+from langchain.retrievers import ContextualCompressionRetriever
+from langchain.retrievers.document_compressors import CrossEncoderReranker
+from langchain_community.cross_encoders import HuggingFaceCrossEncoder
 
 # Define prompt_template at the top level so it is available everywhere
 prompt_template = '''
@@ -84,7 +87,17 @@ def initialize_rag():
         except Exception as e:
             return None, None, None, f"database_error:{str(e)}"
             
-        retriever = vectordb.as_retriever()
+        retriever = vectordb.as_retriever(search_kwargs={"k": 10})
+
+        # Initialize the reranker
+        model = HuggingFaceCrossEncoder(model_name='cross-encoder/ms-marco-MiniLM-L-6-v2')
+        reranker = CrossEncoderReranker(model=model, top_n=3)
+
+        # Create a compression retriever
+        compression_retriever = ContextualCompressionRetriever(
+            base_compressor=reranker, 
+            base_retriever=retriever
+        )
 
         # Set up local Phi3 model via Ollama
         llm = ChatOllama(
@@ -98,12 +111,12 @@ def initialize_rag():
 
         qa_chain = RetrievalQA.from_chain_type(
             llm=llm,
-            retriever=retriever,
+            retriever=compression_retriever,
             chain_type="stuff",
             chain_type_kwargs={"prompt": prompt}
         )
         
-        return vectordb, retriever, qa_chain, "success"
+        return vectordb, compression_retriever, qa_chain, "success"
     except Exception as e:
         return None, None, None, f"initialization_error:{str(e)}"
 
