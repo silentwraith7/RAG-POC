@@ -16,16 +16,31 @@ from langchain.retrievers.document_compressors import CrossEncoderReranker
 from langchain_community.cross_encoders import HuggingFaceCrossEncoder
 
 # Define prompt_template at the top level so it is available everywhere
-prompt_template = '''
-Use ONLY the following context to answer the question. If the answer is not in the context, say "I don't know."
-At the end of your answer, cite the source and page in this exact format: [source: filename, page X]
+prompt_template = """
+You are a helpful assistant for answering questions based on the provided context.
 
-Context:
+**Instructions:**
+1.  Carefully read the `Context` provided below. The context contains snippets from different documents, each with its source and page number.
+2.  Answer the `Question` using ONLY the information from the `Context`.
+3.  If the answer is found in the context, provide the answer and then cite the source. Your citation must be in this exact format: `[source: filename, page X]`.
+4.  If the answer is NOT found in the `Context`, you must say: "I'm sorry, but I couldn't find the answer to your question in the provided documents." DO NOT cite any source.
+5.  Do not add any information that is not from the context.
+
+**Context:**
 {context}
 
-Question: {question}
-Answer:
-'''
+**Question:**
+{question}
+
+**Answer:**
+"""
+
+# This prompt is used to format each document that is passed to the LLM.
+# It ensures that the source and page number are included in the context.
+document_prompt = PromptTemplate(
+    template="---\nContent from document '{source}' on page {page}:\n{page_content}\n---",
+    input_variables=["page_content", "source", "page"],
+)
 
 # Import existing functions
 spec = importlib.util.spec_from_file_location("file_ingestion", "file-ingestion.py")
@@ -101,7 +116,7 @@ def initialize_rag():
 
         # Set up local Phi3 model via Ollama
         llm = ChatOllama(
-            model="mistral"
+            model="phi3"
         )
 
         prompt = PromptTemplate(
@@ -113,7 +128,10 @@ def initialize_rag():
             llm=llm,
             retriever=compression_retriever,
             chain_type="stuff",
-            chain_type_kwargs={"prompt": prompt}
+            chain_type_kwargs={
+                "prompt": prompt,
+                "document_prompt": document_prompt,
+            }
         )
         
         return vectordb, compression_retriever, qa_chain, "success"
@@ -241,7 +259,7 @@ if prompt := st.chat_input("Ask a question about your documents..."):
                     response_container = st.empty()
                     streaming_callback = StreamlitStreamingCallback(response_container)
                     streaming_llm = ChatOllama(
-                        model="mistral",
+                        model="phi3",
                         callbacks=[streaming_callback]
                     )
                     prompt_obj = PromptTemplate(
@@ -252,7 +270,10 @@ if prompt := st.chat_input("Ask a question about your documents..."):
                         llm=streaming_llm,
                         retriever=st.session_state.retriever,
                         chain_type="stuff",
-                        chain_type_kwargs={"prompt": prompt_obj}
+                        chain_type_kwargs={
+                            "prompt": prompt_obj,
+                            "document_prompt": document_prompt
+                        }
                     )
                     result = temp_qa_chain.invoke({"query": prompt})
                     answer = result.get("result", "Sorry, I couldn't generate an answer.")
