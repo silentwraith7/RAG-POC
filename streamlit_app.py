@@ -84,16 +84,35 @@ if "qa_chain" not in st.session_state:
 if "initialization_attempted" not in st.session_state:
     st.session_state.initialization_attempted = False
 
+# Use Streamlit's caching for expensive-to-load resources
+@st.cache_resource
+def get_embeddings():
+    """Get a cached FastEmbedEmbeddings instance."""
+    return FastEmbedEmbeddings()
+
+@st.cache_resource
+def get_reranker():
+    """Get a cached CrossEncoderReranker instance."""
+    model = HuggingFaceCrossEncoder(model_name='cross-encoder/ms-marco-MiniLM-L-6-v2')
+    return CrossEncoderReranker(model=model, top_n=3)
+
+@st.cache_resource
+def get_llm():
+    """Get a cached ChatOllama instance."""
+    # The LLM is initialized without callbacks. Callbacks will be added dynamically.
+    return ChatOllama(model="phi3")
+
 def initialize_rag():
-    """Initialize the RAG components - reusing logic from query.py, but with strict context prompt."""
+    """Initialize the RAG components using cached resources."""
     try:
-        # Check if database exists and has data
+        # Check if database exists
         if not os.path.exists("chroma_db"):
             return None, None, None, "no_database"
-            
-        embeddings = FastEmbedEmbeddings()
+
+        # Use cached functions to get expensive components
+        embeddings = get_embeddings()
         vectordb = Chroma(persist_directory="chroma_db", embedding_function=embeddings)
-        
+
         # Check if database has any documents
         try:
             results = vectordb.get()
@@ -101,39 +120,39 @@ def initialize_rag():
                 return None, None, None, "empty_database"
         except Exception as e:
             return None, None, None, f"database_error:{str(e)}"
-            
-        retriever = vectordb.as_retriever(search_kwargs={"k": 10})
 
-        # Initialize the reranker
-        model = HuggingFaceCrossEncoder(model_name='cross-encoder/ms-marco-MiniLM-L-6-v2')
-        reranker = CrossEncoderReranker(model=model, top_n=3)
+        base_retriever = vectordb.as_retriever(search_kwargs={"k": 10})
+
+        # Get the cached reranker
+        reranker = get_reranker()
 
         # Create a compression retriever
         compression_retriever = ContextualCompressionRetriever(
-            base_compressor=reranker, 
-            base_retriever=retriever
+            base_compressor=reranker,
+            base_retriever=base_retriever
         )
 
-        # Set up local Phi3 model via Ollama
-        llm = ChatOllama(
-            model="phi3"
-        )
+        # Get the cached LLM
+        llm = get_llm()
 
+        # The prompt templates are defined globally
         prompt = PromptTemplate(
             input_variables=["context", "question"],
             template=prompt_template,
         )
 
+        # The QA chain's input key for the question is "question"
         qa_chain = RetrievalQA.from_chain_type(
             llm=llm,
             retriever=compression_retriever,
             chain_type="stuff",
+            input_key="question", # Set the input key to "question"
             chain_type_kwargs={
                 "prompt": prompt,
                 "document_prompt": document_prompt,
             }
         )
-        
+
         return vectordb, compression_retriever, qa_chain, "success"
     except Exception as e:
         return None, None, None, f"initialization_error:{str(e)}"
@@ -250,6 +269,7 @@ if prompt := st.chat_input("Ask a question about your documents..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
+
     if st.session_state.qa_chain is None:
         st.error("❌ RAG system not initialized. Please upload some documents first.")
     else:
@@ -257,25 +277,24 @@ if prompt := st.chat_input("Ask a question about your documents..."):
             with st.spinner("Thinking..."):
                 try:
                     response_container = st.empty()
+                    
+                    # Create a new callback handler for this response
                     streaming_callback = StreamlitStreamingCallback(response_container)
-                    streaming_llm = ChatOllama(
-                        model="phi3",
-                        callbacks=[streaming_callback]
-                    )
-                    prompt_obj = PromptTemplate(
-                        input_variables=["context", "question"],
-                        template=prompt_template,
-                    )
-                    temp_qa_chain = RetrievalQA.from_chain_type(
-                        llm=streaming_llm,
-                        retriever=st.session_state.retriever,
-                        chain_type="stuff",
-                        chain_type_kwargs={
-                            "prompt": prompt_obj,
-                            "document_prompt": document_prompt
-                        }
-                    )
-                    result = temp_qa_chain.invoke({"query": prompt})
+                    
+                    # Get the QA chain and its LLM from session state
+                    qa_chain = st.session_state.qa_chain
+                    llm = qa_chain.combine_documents_chain.llm_chain.llm
+                    
+                    # Temporarily add the streaming callback for this call
+                    original_callbacks = llm.callbacks
+                    llm.callbacks = [streaming_callback]
+                    
+                    # Invoke the chain using the "question" input key
+                    result = qa_chain.invoke({"question": prompt})
+                    
+                    # Restore the original callbacks to avoid side effects
+                    llm.callbacks = original_callbacks
+                    
                     answer = result.get("result", "Sorry, I couldn't generate an answer.")
                     response_container.markdown(answer)
                     st.session_state.messages.append({
