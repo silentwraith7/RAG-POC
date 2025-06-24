@@ -100,7 +100,7 @@ def get_reranker():
 def get_llm():
     """Get a cached ChatOllama instance."""
     # The LLM is initialized without callbacks. Callbacks will be added dynamically.
-    return ChatOllama(model="phi3")
+    return ChatOllama(model="mistral")
 
 def initialize_rag():
     """Initialize the RAG components using cached resources."""
