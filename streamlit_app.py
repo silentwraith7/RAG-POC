@@ -2,7 +2,7 @@ import streamlit as st
 import os
 from pathlib import Path
 from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
-from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma
 from langchain_ollama import ChatOllama
 from langchain.chains import RetrievalQA
 from langchain.schema import Document
