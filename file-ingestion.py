@@ -2,7 +2,7 @@ import os
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
-from langchain_community.vectorstores import Chroma
+from langchain_chroma import Chroma
 
 def ingest(pdf_path: str, persist_dir: str = "chroma_db"):
     # 1️⃣ Load the PDF
@@ -38,7 +38,6 @@ def ingest(pdf_path: str, persist_dir: str = "chroma_db"):
         embedding=embeddings,
         persist_directory=persist_dir
     )
-    vectordb.persist()
     
     print(f"✅ Ingested '{pdf_path}' -> vector DB '{persist_dir}'.")
     print(f"📄 Processed {len(chunks)} chunks with metadata:")

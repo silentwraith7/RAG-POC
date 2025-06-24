@@ -1,7 +1,7 @@
 # Core AI and RAG functionality
 langchain>=0.0.235
 langchain-community>=0.0.100
-chromadb>=0.3.25
+langchain-chroma
 fastembed>=0.1.0
 
 # Ollama local LLM support
@@ -17,7 +17,6 @@ streamlit>=1.28.0
 
 # For reranking
 sentence-transformers>=2.2.2
-langchain-community>=0.0.34
 
 # (Optional CLI support) For reading environment variables
 python-dotenv>=1.0.0
